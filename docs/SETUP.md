@@ -20,7 +20,7 @@ Status: **in progress (0.1 done).**
 - [x] 0.1 Create the GitHub repository `serverless-incident-hub` under the personal account and push this scaffold.
 - [x] 0.2 Confirm the AWS identity and account: `aws sts get-caller-identity` (do not commit the account ID).
 - [x] 0.3 Dry-run the teardown script: `./scripts/teardown.sh list` (expected: "No stacks found").
-- [ ] 0.4 Run the preflight: `./scripts/preflight.sh`, then review and commit `docs/PREFLIGHT.md`.
+- [x] 0.4 Run the preflight: `./scripts/preflight.sh`, then review and commit `docs/PREFLIGHT.md`.
 - [ ] 0.5 Confirm nothing is left behind: `./scripts/teardown.sh list` and `./scripts/teardown.sh verify`.
 - [ ] 0.6 Mark ADR 001 and ADR 002 as *Accepted* (or adjust them) based on the preflight results.
 
@@ -113,3 +113,52 @@ Output (account ID masked):
 
 Result: OK. First read-only run against the real account: the script authenticates, lists stacks
 and finds no project stacks. `destroy` and `verify` have not been run against a real account yet.
+
+#### 0.4 Preflight: which services does the account allow? - 2026-09-20
+
+Commands:
+
+    export AWS_REGION=us-east-1
+    ./scripts/preflight.sh
+    ./scripts/teardown.sh list
+    grep -nE '[0-9]{12}' docs/PREFLIGHT.md
+
+Output (account ID masked):
+
+    Preflight in region us-east-1 (stack prefix sih-preflight-*)
+
+      ...  s3               OK
+      ...  dynamodb         OK
+      ...  sqs              OK
+      ...  sns              OK
+      ...  eventbridge      OK
+      ...  ssm              OK
+      ...  logs             OK
+      ...  iam-role         OK
+      ...  lambda           OK
+      ...  step-functions   OK
+      ...  apigw-http       OK
+      ...  cognito          OK
+
+    Summary: 12 OK, 0 denied/failed. Written to docs/PREFLIGHT.md
+
+    AWS account : <account-id>
+    Region      : us-east-1
+    Stack prefix: sih-   (delete order below)
+
+    No stacks found. Nothing to delete.
+
+The `grep` found no 12-digit numbers, so the generated report contains no account ID.
+
+Result: all 12 probed services can be created and deleted in this account in `us-east-1`.
+
+- No SCP or missing permission blocked any of them, and an IAM role could be created without a
+  permissions boundary. In the previous project the ECR restriction (ADR 003) was only discovered
+  when trying to use it; this check moves that discovery to before any design work.
+- Every probe stack was also deleted successfully, so deletion is proven for these 12 resource
+  types, and `teardown.sh list` confirms no stack was left behind.
+- First run of the templates against a real account (before, only against a local emulator).
+- Not probed yet, to be checked in the phase that needs them (ADR 002, rule 9): CloudFront,
+  EventBridge Scheduler, IAM OIDC provider (GitHub Actions), AWS Budgets, CloudWatch alarms and
+  dashboards, X-Ray, and the AI services (Translate, Comprehend, Bedrock).
+- Scope: creation permissions in `us-east-1` only; service quotas and runtime behaviour are untested.
