@@ -6,3 +6,4 @@ packaged-*.yaml
 __pycache__/
 node_modules/
 .aws-sam/
+scripts/config.local.sh

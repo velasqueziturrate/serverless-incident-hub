@@ -68,6 +68,12 @@ Every resource is created by CloudFormation stacks named `sih-<NN>-<name>` and t
 ./scripts/teardown.sh verify    # look for leftovers
 ```
 
+To check the whole account (all regions, read-only) that nothing of yours is still running or left behind:
+
+```bash
+./scripts/whats-running.sh
+```
+
 Full runbook, including the console procedure (English/Spanish names), idle-cost table and common
 failures: [`docs/TEARDOWN.md`](docs/TEARDOWN.md).
 
@@ -102,7 +108,7 @@ documentation updated and the stacks either destroyed or explicitly kept.
 ```
 cfn/          CloudFormation templates, one folder or file per layer (sih-NN-name)
 lambda/       Lambda function source code
-scripts/      config.sh, teardown.sh, preflight.sh
+scripts/      config.sh, teardown.sh, preflight.sh, whats-running.sh
 docs/         SETUP.md (build log), TEARDOWN.md (runbook), PREFLIGHT.md (generated),
               decisions/ (ADRs), comparisons/
 ```

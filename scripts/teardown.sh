@@ -5,6 +5,7 @@
 #   ./scripts/teardown.sh list      # default. Read-only: shows what "destroy" would delete
 #   ./scripts/teardown.sh destroy   # deletes all project stacks (asks for confirmation)
 #   ./scripts/teardown.sh verify    # looks for leftovers that CloudFormation does not remove
+#   ./scripts/teardown.sh check-arn <arn>   # asks the owning service if one resource still exists
 #
 # Everything is found by the stack-name prefix (STACK_PREFIX, default "sih") and deleted in
 # reverse alphabetical order, i.e. sih-90-* first ... sih-00-* last (see ADR 002).
@@ -114,6 +115,50 @@ show_plan() {
   done
 }
 
+# Asks the service that owns a resource whether it still exists. Prints: alive | gone | unknown.
+# Why: the tagging API behind "verify" is eventually consistent and can keep listing resources
+# that were already deleted, so every tagged ARN is confirmed with its own service.
+# Supported: cognito-idp, sns, sqs, dynamodb, lambda, states, events (bus), s3, ssm, apigateway.
+arn_state() {
+  local arn="$1" service resource out rc=0
+  service="$(printf '%s' "$arn" | cut -d: -f3)"
+  resource="$(printf '%s' "$arn" | cut -d: -f6-)"
+  case "$service" in
+    cognito-idp)
+      out="$(aws cognito-idp describe-user-pool --user-pool-id "${resource#userpool/}" 2>&1)" || rc=$? ;;
+    sns)
+      out="$(aws sns get-topic-attributes --topic-arn "$arn" 2>&1)" || rc=$? ;;
+    sqs)
+      out="$(aws sqs get-queue-url --queue-name "$resource" 2>&1)" || rc=$? ;;
+    dynamodb)
+      out="$(aws dynamodb describe-table --table-name "${resource#table/}" 2>&1)" || rc=$? ;;
+    lambda)
+      out="$(aws lambda get-function --function-name "${resource#function:}" 2>&1)" || rc=$? ;;
+    states)
+      out="$(aws stepfunctions describe-state-machine --state-machine-arn "$arn" 2>&1)" || rc=$? ;;
+    events)
+      case "$resource" in
+        event-bus/*) out="$(aws events describe-event-bus --name "${resource#event-bus/}" 2>&1)" || rc=$? ;;
+        *) echo unknown; return 0 ;;
+      esac ;;
+    s3)
+      out="$(aws s3api head-bucket --bucket "$resource" 2>&1)" || rc=$? ;;
+    ssm)
+      out="$(aws ssm get-parameter --name "/${resource#parameter/}" 2>&1)" || rc=$? ;;
+    apigateway)
+      out="$(aws apigatewayv2 get-api --api-id "${resource##*/}" 2>&1)" || rc=$? ;;
+    *)
+      echo unknown; return 0 ;;
+  esac
+  if [ "$rc" -eq 0 ]; then
+    echo alive
+  elif printf '%s' "$out" | grep -qiE 'NotFound|NonExistent|DoesNotExist|does not exist|Not Found|NoSuchBucket|404'; then
+    echo gone
+  else
+    echo unknown
+  fi
+}
+
 FOUND=0
 report() { # $1 = title, $2 = newline separated findings
   if [ -n "$2" ]; then
@@ -161,9 +206,24 @@ case "$MODE" in
     log ""
     load_stacks
     report "CloudFormation stacks" "$(printf '%s\n' "${STACKS[@]+"${STACKS[@]}"}")"
-    report "Resources tagged Project=$PROJECT_TAG" "$(aws resourcegroupstaggingapi get-resources \
+    tagged="$(aws resourcegroupstaggingapi get-resources \
       --tag-filters "Key=Project,Values=$PROJECT_TAG" \
       --query 'ResourceTagMappingList[].ResourceARN' --output text 2>/dev/null | clean_lines || true)"
+    alive=""; gone=""; unknown=""
+    while IFS= read -r arn; do
+      if [ -z "$arn" ]; then continue; fi
+      case "$(arn_state "$arn")" in
+        alive) alive="${alive}${alive:+$'\n'}$arn" ;;
+        gone) gone="${gone}${gone:+$'\n'}$arn" ;;
+        *) unknown="${unknown}${unknown:+$'\n'}$arn" ;;
+      esac
+    done <<< "$tagged"
+    report "Resources tagged Project=$PROJECT_TAG that still exist" "$alive"
+    report "Tagged resources this script cannot check (confirm by hand: ./scripts/teardown.sh check-arn <arn>)" "$unknown"
+    if [ -n "$gone" ]; then
+      log "  [ok] Stale entries in the tag index (already deleted; the tagging API lags behind):"
+      printf '%s\n' "$gone" | sed 's/^/         /'
+    fi
     report "S3 buckets named ${STACK_PREFIX}-*" "$(aws s3api list-buckets \
       --query "Buckets[?starts_with(Name, '${STACK_PREFIX}-')].Name" --output text 2>/dev/null | clean_lines || true)"
     for prefix in "/aws/lambda/${STACK_PREFIX}-" "/${STACK_PREFIX}/" "/aws/vendedlogs/${STACK_PREFIX}"; do
@@ -185,7 +245,12 @@ case "$MODE" in
     log "Clean: no project resources found."
     ;;
 
+  check-arn)
+    [ -n "${2:-}" ] || die "Usage: ./scripts/teardown.sh check-arn <arn>"
+    log "$(arn_state "$2")   $2"
+    ;;
+
   *)
-    die "Unknown mode '$MODE'. Use: list | destroy | verify"
+    die "Unknown mode '$MODE'. Use: list | destroy | verify | check-arn <arn>"
     ;;
 esac

@@ -91,11 +91,13 @@ Then run the fast path when convenient.
 | Orphan log groups after the stacks are gone | A Lambda log group that was not declared in the template | `./scripts/teardown.sh verify` lists them; delete under **CloudWatch** > **Log groups** (**Grupos de registros**). Templates declare their log groups to avoid this |
 | KMS key / Secrets Manager secret "pending deletion" | These services delay deletion on purpose (recovery window) | Nothing to do; the name may stay reserved during the window |
 | Bucket with S3 Object Lock | Retained versions cannot be deleted before the retention expires | Not used in this project |
+| `verify` lists a tagged resource that no longer exists | The tagging API is eventually consistent and can keep listing deleted resources (seen with a Cognito user pool that was still listed about 14 minutes after its stack was deleted) | `verify` asks the owning service about every tagged ARN and reports deleted ones as stale index entries. For a type it cannot check, run `./scripts/teardown.sh check-arn <arn>` (prints `alive`, `gone` or `unknown`) |
 
 ## 7. Verification checklist (after destroy)
 
 - [ ] `./scripts/teardown.sh list` reports no stacks.
 - [ ] `./scripts/teardown.sh verify` prints "Clean".
+- [ ] `./scripts/whats-running.sh` ends with "RESULT: nothing to review" (all regions, read-only).
 - [ ] Console: CloudFormation shows no `sih-*` stacks in the project region.
 - [ ] Resources in `us-east-1` if the project used global services (CloudFront, IAM, ACM, WAF).
 - [ ] Billing > **Cost Explorer** (**Explorador de costos**), filtered by tag `Project`: look again the next
@@ -104,8 +106,50 @@ Then run the fast path when convenient.
 
 ## 8. Limits of this runbook (honest notes)
 
-- `teardown.sh` was tested against a local AWS emulator (moto), not against a real account yet. The
-  first real run should be `list`, which changes nothing.
+- `list` (step 0.3) and `verify` (step 0.5) have been run against the real account. `destroy` has so far
+  only been tested against a local AWS emulator (moto), so the first real `destroy` should follow a `list`.
+- `verify` confirms tagged resources with their own service for: Cognito, SNS, SQS, DynamoDB, Lambda,
+  Step Functions, EventBridge buses, S3, SSM parameters and API Gateway. Other types are reported as
+  "cannot check" and need a manual look (`check-arn` or the console).
 - The tag search only sees resources that support tagging and were tagged; the name-prefix checks in
   `verify` cover the common gaps, not every possible one.
 - Costs shown by AWS can lag; the checklist item on cost data is a next-day task.
+
+## 9. Quick audit: is anything of mine still running?
+
+`teardown.sh` only knows this project. To answer the wider question (*is anything at all left in my name,
+in any region, that could be costing money?*) there is a second, read-only script:
+
+```bash
+./scripts/whats-running.sh        # last 3 days of CloudTrail history
+./scripts/whats-running.sh 14     # last 14 days
+```
+
+For every enabled region it checks four things:
+
+1. **Project stacks** (`sih-*`) that still exist.
+2. **Tagged resources** (`Project=serverless-incident-hub`, plus any extra project tags you configure). Each one is
+   confirmed with its own service, so a stale tag-index entry is reported as `[stale tag]` and not as a leftover.
+3. **EC2 instances** launched with the project key pair (running, pending or stopped: stopped ones still pay for their disks).
+4. **Created vs deleted**: what your identity created through the API (from CloudTrail) against what it deleted.
+   A `Create*` with fewer matching `Delete*` events is marked `[REVIEW]`. Key pairs and service-linked roles are marked
+   `[free]`: they stay behind by design and cost nothing.
+
+Reading the result: exit code `0` and "RESULT: nothing to review" means nothing billable was found. `[REVIEW]` lines
+say what to look at; the script never changes anything.
+
+Personal settings live in `scripts/config.local.sh`, which is git-ignored (so client or employer names never reach
+the public repository), for example:
+
+```bash
+AUDIT_EXTRA_PROJECT_TAGS="tag-value-of-an-earlier-project"
+AUDIT_EC2_KEY_PATTERN="my-key-pair*"
+```
+
+Limits (honest notes):
+
+- CloudTrail lags about 15 minutes, so the last few minutes of activity may be missing.
+- It only sees API actions by *this identity* inside the window. Older resources, or resources created by other
+  identities, are found only through tags.
+- The created-vs-deleted balance is a heuristic: it counts API calls, not resources.
+- It does not read billing data. Cost Explorer (**Explorador de costos**) is the source of truth for money, and it lags about 24 hours.

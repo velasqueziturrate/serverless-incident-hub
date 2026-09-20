@@ -21,7 +21,7 @@ Status: **in progress (0.1 done).**
 - [x] 0.2 Confirm the AWS identity and account: `aws sts get-caller-identity` (do not commit the account ID).
 - [x] 0.3 Dry-run the teardown script: `./scripts/teardown.sh list` (expected: "No stacks found").
 - [x] 0.4 Run the preflight: `./scripts/preflight.sh`, then review and commit `docs/PREFLIGHT.md`.
-- [ ] 0.5 Confirm nothing is left behind: `./scripts/teardown.sh list` and `./scripts/teardown.sh verify`.
+- [x] 0.5 Confirm nothing is left behind: `./scripts/teardown.sh list` and `./scripts/teardown.sh verify`.
 - [ ] 0.6 Mark ADR 001 and ADR 002 as *Accepted* (or adjust them) based on the preflight results.
 
 ### Log
@@ -162,3 +162,85 @@ Result: all 12 probed services can be created and deleted in this account in `us
   EventBridge Scheduler, IAM OIDC provider (GitHub Actions), AWS Budgets, CloudWatch alarms and
   dashboards, X-Ray, and the AI services (Translate, Comprehend, Bedrock).
 - Scope: creation permissions in `us-east-1` only; service quotas and runtime behaviour are untested.
+
+## 0.5 Confirm nothing is left behind - 2026-09-20
+
+Commands:
+
+    ./scripts/teardown.sh list
+    ./scripts/teardown.sh verify
+    aws cognito-idp list-user-pools --max-results 60 --query 'UserPools[].[Id,Name]' --output text
+    aws cognito-idp describe-user-pool --user-pool-id <pool-id>
+    ./scripts/whats-running.sh
+
+**Incident 3: `verify` reported a Cognito user pool that did not exist (false positive)**
+
+- Symptom (first `verify` after the preflight, account ID masked):
+
+      [!!] Resources tagged Project=serverless-incident-hub
+             arn:aws:cognito-idp:us-east-1:<account-id>:userpool/us-east-1_f5utCh8Gl
+
+  Everything else was clean: no stacks, buckets, log groups or roles.
+- Investigation: `describe-user-pool` on that ID returned `ResourceNotFoundException ... does not exist`, and
+  `list-user-pools` did not list it (only pools that belong to other people). The API history also shows one
+  `CreateUserPool` and one `DeleteUserPool` in the window.
+- Root cause: `verify` treated the Resource Groups Tagging API as the source of truth. That index is eventually
+  consistent: it still listed the pool at least 14 minutes after the deletion, and again in a later audit run.
+- Fix: `verify` now asks the owning service about every tagged ARN and reports `alive`, `gone` (stale index
+  entry, informational) or `unknown` (counted as a leftover). New mode `check-arn <arn>` for manual checks.
+  Documented in the runbook (`docs/TEARDOWN.md`, failure table). The SQS branch could not be exercised
+  against the emulator, so it is only proven on a real account when an SQS queue is involved.
+- Lesson: never trust a single index; confirm with the service that owns the resource.
+
+Verification after the fix (account ID masked):
+
+    gone   arn:aws:cognito-idp:us-east-1:<account-id>:userpool/us-east-1_f5utCh8Gl
+
+    AWS account : <account-id>
+    Region      : us-east-1
+    Looking for leftovers (things CloudFormation does not always remove)...
+    
+      [ok] CloudFormation stacks: none
+      [ok] Resources tagged Project=serverless-incident-hub that still exist: none
+      [ok] Tagged resources this script cannot check (confirm by hand: ./scripts/teardown.sh check-arn <arn>): none
+      [ok] Stale entries in the tag index (already deleted; the tagging API lags behind):
+             arn:aws:cognito-idp:us-east-1:<account-id>:userpool/us-east-1_f5utCh8Gl
+      [ok] S3 buckets named sih-*: none
+      [ok] CloudWatch log groups /aws/lambda/sih-*: none
+      [ok] CloudWatch log groups /sih/*: none
+      [ok] CloudWatch log groups /aws/vendedlogs/sih*: none
+      [ok] IAM roles named sih-*: none
+    
+    Not covered by this script (check by hand, see docs/TEARDOWN.md): KMS keys or Secrets Manager
+    secrets in 'pending deletion', CloudFront distributions in other accounts/regions, and cost data
+    (Cost Explorer lags by up to ~24h, so look again tomorrow).
+    
+    Clean: no project resources found.
+
+**Whole-account audit: new script `scripts/whats-running.sh`**
+
+Written because "is anything of mine still running, in any region?" needs a wider answer than the
+project-only `teardown.sh verify`. It is read-only and checks stacks, tagged resources (each confirmed
+with its own service), EC2 instances that use the project key pair, and the balance of Create vs Delete
+API calls found in CloudTrail. First run against the real account (account ID and user name masked):
+
+    Identity : arn:aws:iam::<account-id>:user/<iam-user>
+    Window   : last 3 day(s), since 2026-09-17T20:15:33Z
+    Regions  : 17 enabled regions scanned
+    Read-only: nothing is created, changed or deleted
+    
+    == us-east-1
+       [stale tag] deleted already, the tag index lags: arn:aws:cognito-idp:us-east-1:<account-id>:userpool/us-east-1_f5utCh8Gl
+    == API activity by <iam-user> (created vs deleted, heuristic)
+       [free] us-east-1: CreateKeyPair x1 vs DeleteKeyPair x0 (this kind of resource costs nothing)
+       [free] us-east-1: CreateServiceLinkedRole x1 vs DeleteServiceLinkedRole x0 (this kind of resource costs nothing)
+    
+    RESULT: nothing to review. No project stacks, no live tagged resources, no project EC2, and
+            every billable Create in the last 3 day(s) has a matching Delete.
+
+Result: exit code 0. Every billable create in the window has a matching delete. The only creates without
+a delete are a key pair and a service-linked role, both free (marked `[free]`).
+
+Lesson: a second-hand summary of the CloudTrail history (from a chat assistant) claimed that no resources
+had been created at all, which contradicted the 12 probe stacks created that same day. Reading CloudTrail
+directly showed the real picture. Verify against the primary source, not against someone's summary.
