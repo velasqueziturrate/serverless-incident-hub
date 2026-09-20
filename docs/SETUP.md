@@ -18,8 +18,8 @@ Status: **in progress (0.1 done).**
 ### Steps
 
 - [x] 0.1 Create the GitHub repository `serverless-incident-hub` under the personal account and push this scaffold.
-- [ ] 0.2 Confirm the AWS identity and account: `aws sts get-caller-identity` (do not commit the account ID).
-- [ ] 0.3 Dry-run the teardown script: `./scripts/teardown.sh list` (expected: "No stacks found").
+- [x] 0.2 Confirm the AWS identity and account: `aws sts get-caller-identity` (do not commit the account ID).
+- [x] 0.3 Dry-run the teardown script: `./scripts/teardown.sh list` (expected: "No stacks found").
 - [ ] 0.4 Run the preflight: `./scripts/preflight.sh`, then review and commit `docs/PREFLIGHT.md`.
 - [ ] 0.5 Confirm nothing is left behind: `./scripts/teardown.sh list` and `./scripts/teardown.sh verify`.
 - [ ] 0.6 Mark ADR 001 and ADR 002 as *Accepted* (or adjust them) based on the preflight results.
@@ -77,3 +77,39 @@ Verification:
   commit with `git commit --amend --reset-author --no-edit` before the first push (nothing was public yet),
   and checked that no file in the repository mentioned the employer.
 - Lesson: on this machine, set the repo-local identity **before the first commit** of every new project.
+
+#### 0.2 Confirm the AWS identity and permissions - 2026-09-20
+
+Commands:
+
+    aws configure list-profiles
+    aws sts get-caller-identity
+    aws iam get-user --user-name <iam-user> --query 'User.PermissionsBoundary'
+    aws iam list-attached-user-policies --user-name <iam-user> --query 'AttachedPolicies[].PolicyName'
+    aws iam list-groups-for-user --user-name <iam-user> --query 'Groups[].GroupName'
+
+Result (account ID and user name masked):
+
+- Single CLI profile (`default`), so there is no risk of pointing at another account by mistake.
+- Identity is an IAM user (`arn:aws:iam::<account-id>:user/<iam-user>`), i.e. long-lived access keys.
+- No permissions boundary (`null`), so `ROLE_PERMISSIONS_BOUNDARY` is not needed for now.
+- No policies attached directly to the user; permissions come from the `Administrators` group.
+- Being administrator in IAM does not override Organizations SCPs, which is why the preflight (0.4) is still needed.
+
+#### 0.3 Dry-run the teardown script - 2026-09-20
+
+Commands:
+
+    export AWS_REGION=us-east-1
+    ./scripts/teardown.sh list
+
+Output (account ID masked):
+
+    AWS account : <account-id>
+    Region      : us-east-1
+    Stack prefix: sih-   (delete order below)
+
+    No stacks found. Nothing to delete.
+
+Result: OK. First read-only run against the real account: the script authenticates, lists stacks
+and finds no project stacks. `destroy` and `verify` have not been run against a real account yet.
