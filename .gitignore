@@ -1,0 +1,8 @@
+.DS_Store
+*.pem
+.env
+*.swp
+packaged-*.yaml
+__pycache__/
+node_modules/
+.aws-sam/
