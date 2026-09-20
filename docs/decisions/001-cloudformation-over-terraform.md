@@ -1,6 +1,6 @@
 # ADR 001: CloudFormation as the IaC tool (instead of Terraform, SAM or CDK)
 
-- **Status:** Proposed (to be marked *Accepted* once confirmed after the Phase 0 preflight)
+- **Status:** Accepted (2026-09-20, after the Phase 0 preflight)
 - **Date:** 2026-09-19
 - **Related:** ADR 002 (stack layering and teardown order), `docs/TEARDOWN.md`
 
@@ -44,3 +44,9 @@ artifacts bucket that lives in the bootstrap stack.
 - Resources created implicitly (Lambda log groups) can outlive the stack: templates declare them explicitly and `teardown.sh verify` looks for stragglers.
 - CloudFormation is slower and more verbose than Terraform: accepted; small stacks and `cfn-lint` keep it manageable.
 - Stack failures can leave `ROLLBACK_COMPLETE` stacks that must be deleted before retrying: documented in the runbook.
+
+## Follow-up (2026-09-20, end of Phase 0)
+
+- The preflight ([`docs/PREFLIGHT.md`](../PREFLIGHT.md)) created and deleted 12 resource types with CloudFormation in the real account, and `teardown.sh` and `whats-running.sh` confirmed that nothing was left behind.
+- One limitation found in practice: the tag index used by `teardown.sh verify` is eventually consistent, so tagged ARNs are now confirmed with the owning service (see `docs/SETUP.md`, step 0.5).
+- Still open: `destroy` has not yet removed real project stacks. Only the emulator and the preflight's own cleanup have exercised deletion.

@@ -13,7 +13,7 @@ Conventions: region `us-east-1`; stacks named `sih-<NN>-<name>`; docs in English
 Goal: before creating a single real resource, know how to remove everything, and know which services
 the account allows.
 
-Status: **in progress (0.1 done).**
+Status: **complete (0.1 to 0.6 done).**
 
 ### Steps
 
@@ -22,7 +22,7 @@ Status: **in progress (0.1 done).**
 - [x] 0.3 Dry-run the teardown script: `./scripts/teardown.sh list` (expected: "No stacks found").
 - [x] 0.4 Run the preflight: `./scripts/preflight.sh`, then review and commit `docs/PREFLIGHT.md`.
 - [x] 0.5 Confirm nothing is left behind: `./scripts/teardown.sh list` and `./scripts/teardown.sh verify`.
-- [ ] 0.6 Mark ADR 001 and ADR 002 as *Accepted* (or adjust them) based on the preflight results.
+- [x] 0.6 Mark ADR 001 and ADR 002 as *Accepted* (or adjust them) based on the preflight results.
 
 ### Log
 
@@ -244,3 +244,21 @@ a delete are a key pair and a service-linked role, both free (marked `[free]`).
 Lesson: a second-hand summary of the CloudTrail history (from a chat assistant) claimed that no resources
 had been created at all, which contradicted the 12 probe stacks created that same day. Reading CloudTrail
 directly showed the real picture. Verify against the primary source, not against someone's summary.
+
+#### 0.6 Accept ADR 001 and ADR 002 - 2026-09-20
+
+Decision: ADR 001 (CloudFormation as the IaC tool) and ADR 002 (layered stacks, naming, teardown order)
+move from *Proposed* to *Accepted*.
+
+Evidence:
+
+- Preflight: 12 of 12 services created and deleted in the real account (step 0.4).
+- Teardown tooling: `list`, `verify` and `whats-running.sh` ran against the real account and found nothing left behind (steps 0.3 and 0.5).
+- Conventions: the `sih-preflight-*` probe stacks were found and removed by prefix.
+
+Known gaps carried into Phase 1 (also recorded in each ADR's follow-up):
+
+- `destroy` has only been exercised by the emulator, not yet on real project stacks.
+- Not probed yet: CloudFront, EventBridge Scheduler, IAM OIDC provider, AWS Budgets, CloudWatch alarms and dashboards, X-Ray, AI services.
+
+Phase 0 is closed. `docs/RESUME.md` was added as the single cold-start guide. Next: Phase 1 (foundation).

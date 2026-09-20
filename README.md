@@ -9,7 +9,7 @@ This is the second project of my cloud portfolio. The first,
 Kubernetes, CI and Terraform. This one covers the serverless / event-driven paradigm, deliberately with a
 different IaC tool (CloudFormation) and the same habit: every choice is documented with its trade-off.
 
-> **Status:** Phase 0 (guardrails). Nothing beyond the teardown tooling exists yet. The architecture below is the plan, not the result.
+> **Status:** Phase 0 (guardrails) complete: teardown tooling, runbook, preflight and ADR 001-002 are done. The architecture below is still the plan for Phase 1 onwards, not the result.
 
 ## Why this project exists
 
@@ -44,9 +44,9 @@ Each decision is documented with its alternatives. "Implemented" means it exists
 
 | Decision | Options | Status |
 | --- | --- | --- |
-| IaC | CloudFormation vs Terraform vs SAM vs CDK ([ADR 001](docs/decisions/001-cloudformation-over-terraform.md)) | CloudFormation proposed; Terraform used in project 1; SAM and CDK documented only |
-| Stack layout and teardown | Layered stacks `sih-NN-name` ([ADR 002](docs/decisions/002-stack-layering-and-teardown-order.md)) | Proposed |
-| Service availability | Discovered by probing, not assumed ([PREFLIGHT](docs/PREFLIGHT.md), generated in Phase 0) | Pending |
+| IaC | CloudFormation vs Terraform vs SAM vs CDK ([ADR 001](docs/decisions/001-cloudformation-over-terraform.md)) | Accepted: CloudFormation (implemented); Terraform used in project 1; SAM and CDK documented only |
+| Stack layout and teardown | Layered stacks `sih-NN-name` ([ADR 002](docs/decisions/002-stack-layering-and-teardown-order.md)) | Accepted |
+| Service availability | Discovered by probing, not assumed ([PREFLIGHT](docs/PREFLIGHT.md), generated in Phase 0) | Done: 12/12 probed services allowed in us-east-1 |
 
 More ADRs and comparisons are added as phases are completed.
 
@@ -92,7 +92,7 @@ Nothing touches real AWS infrastructure without a human running a command on pur
 Each phase starts only if the preflight shows the account allows its services, and ends with the
 documentation updated and the stacks either destroyed or explicitly kept.
 
-- [ ] **Phase 0 - Guardrails:** repo, teardown script and runbook, service preflight, ADR 001-002
+- [x] **Phase 0 - Guardrails:** repo, teardown script and runbook, service preflight, ADR 001-002
 - [ ] Phase 1 - Foundation: bootstrap stack (artifacts bucket), tagging, budget alert if permitted
 - [ ] Phase 2 - Data layer: DynamoDB, S3
 - [ ] Phase 3 - Ingest API: API Gateway HTTP API, Cognito, Lambda
@@ -109,7 +109,7 @@ documentation updated and the stacks either destroyed or explicitly kept.
 cfn/          CloudFormation templates, one folder or file per layer (sih-NN-name)
 lambda/       Lambda function source code
 scripts/      config.sh, teardown.sh, preflight.sh, whats-running.sh
-docs/         SETUP.md (build log), TEARDOWN.md (runbook), PREFLIGHT.md (generated),
+docs/         SETUP.md (build log), TEARDOWN.md (runbook), PREFLIGHT.md (generated), RESUME.md (cold-start guide),
               decisions/ (ADRs), comparisons/
 ```
 

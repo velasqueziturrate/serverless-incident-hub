@@ -1,6 +1,6 @@
 # ADR 002: Layered stacks, naming convention and teardown order
 
-- **Status:** Proposed (to be marked *Accepted* after the Phase 0 preflight)
+- **Status:** Accepted (2026-09-20, after the Phase 0 preflight)
 - **Date:** 2026-09-19
 - **Related:** ADR 001, `docs/TEARDOWN.md`, `scripts/teardown.sh`
 
@@ -58,3 +58,8 @@ that redeploying the compute layer never touches data, and so that deletion orde
 - More stacks means more cross-stack references (Outputs/Exports). Exports also protect ordering (a stack whose export is in use cannot be deleted), but they cannot be changed while imported.
 - Numeric prefixes are a convention, not something CloudFormation enforces.
 - Not using KMS CMKs or Secrets Manager by default gives up features that a production system would likely use; the trade-off is documented and revisited per phase.
+
+## Follow-up (2026-09-20, end of Phase 0)
+
+- The naming and tag convention worked: the `sih-preflight-*` probe stacks were found and removed by prefix, and every probe carried the `Project` tag.
+- Layers 00-90 remain a plan and are validated phase by phase. Services not probed yet (CloudFront, EventBridge Scheduler, IAM OIDC provider, AWS Budgets, CloudWatch alarms and dashboards, X-Ray, AI services) are checked in the phase that needs them (rule 9).
